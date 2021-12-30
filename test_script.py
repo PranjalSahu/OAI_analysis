@@ -7,6 +7,7 @@ import time
 from functools import partial
 from multiprocessing import Pool
 from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering
 from sklearn.cluster import SpectralClustering
 import matplotlib as mpl
 from skimage import measure
@@ -118,30 +119,23 @@ def get_cuberille_mesh(input_image):
     cuberille.GenerateTriangleFacesOn()
     cuberille.ProjectVerticesToIsoSurfaceOn()
     cuberille.SetProjectVertexSurfaceDistanceThreshold(0.001)
-    cuberille.SetProjectVertexMaximumNumberOfSteps(50)
+    cuberille.SetProjectVertexMaximumNumberOfSteps(500)
     cuberille.SetProjectVertexStepLength(0.25)
     cuberille.SetInterpolator(interpolator)
     
     cuberille.Update()
     cuberille_output = cuberille.GetOutput()
     
-    # Write the Mesh to obtain the Largest Connected Component using VTK
-    itk.meshwrite(cuberille_output, 'cuberille_output.vtk')
     print('Got Cuberille Mesh')
     
     if 1:
-        reader = vtk.vtkPolyDataReader()
-        reader.SetFileName('cuberille_output.vtk')
-        reader.Update()
-        vtk_mesh = reader.GetOutput()
-        print('Reading of Cuberille Output Done')
-        
         # Get the Largest region for FC
-        connectivityFilter = vtk.vtkPolyDataConnectivityFilter()
-        connectivityFilter.SetInputData(vtk_mesh)
+        connectivityFilter = vtk.ConnectedRegionsMeshFilter.MF3MF3.New()
+        connectivityFilter.SetInput(cuberille_output)
         connectivityFilter.SetExtractionModeToLargestRegion()
         connectivityFilter.Update()
         largest_connected_output = connectivityFilter.GetOutput()
+
         writer = vtk.vtkPolyDataWriter()
         writer.SetFileVersion(42)
         writer.SetInputData(largest_connected_output)
@@ -149,19 +143,8 @@ def get_cuberille_mesh(input_image):
         writer.Update()
         print('Got Largest Connected Component')
 
-        #tri_converter = vtk.vtkTriangleFilter()
-        #tri_converter.SetInputData(largest_connected_output)
-        #tri_converter.Update()
-        #triangle_output = tri_converter.GetOutput()
-        #writer = vtk.vtkPolyDataWriter()
-        #writer.SetInputData(triangle_output)
-        #writer.SetFileName('triangle_output.vtk')
-        #writer.Update()
-        #print('Got Triangulated Mesh')
-
         # Read the Largest Connected Component as ITK Mesh
         output = itk.meshread('largest_connected_output.vtk')
-        #output = itk.meshread('triangle_output.vtk')
         print('Reading of largest_connected_output Done')
     
     #output = cuberille_output
@@ -179,7 +162,7 @@ def get_cuberille_mesh(input_image):
     for i in range(verts.shape[0]):
         verts[i] = output.GetPoints().ElementAt(i)
     
-    return verts, faces, output
+    return verts, faces, output, largest_connected_output
 
 def get_neighbors(mesh, root, element, search_range=1, edge_only=False):
     """
@@ -428,16 +411,21 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
 
     mesh.add_attribute("face_centroid")
     mesh.add_attribute("face_normal")
-
+    mesh.add_attribute("face_index")
+    #mesh.add_attribute("vertex_gaussian_curvature")
+    
     mesh_centroids = mesh.get_attribute('face_centroid').reshape(-1, 3)
     mesh_centroids_normalized = (mesh_centroids - np.mean(mesh_centroids, axis=0)) / \
                                 (np.max(mesh_centroids, axis=0) - np.min(mesh_centroids, axis=0))
 
     mesh_normals = mesh.get_attribute('face_normal').reshape(-1, 3)
+    mesh_face_index = mesh.get_attribute('face_index').reshape(-1, 1)
 
     # clustering normals
-    features = np.concatenate((mesh_centroids_normalized * 1, mesh_normals * 10), axis=1)
-    est = KMeans(n_clusters=2)
+    features = np.concatenate((mesh_centroids_normalized * 1, mesh_normals * 1), axis=1)
+    
+    #est = KMeans(n_clusters=2)
+    est = KMeans(n_clusters=2, algorithm="full")
     #est = SpectralClustering(n_clusters=2)
     labels = est.fit(features).labels_
 
@@ -475,14 +463,6 @@ def compute_mesh_thickness(mesh, cartilage, smooth_rings=1, max_rings=None, n_wo
                                                                                                   n_workers=n_workers)
     else:
         ValueError("Cartilage can only be FC or TC")
-
-    # you do not need this since inner mesh get vertex index/normal from original mesh
-    # do this later, in case there was some mesh processing
-    # inner_mesh.add_attribute("vertex_index")
-    # inner_mesh.add_attribute("vertex_normal")
-    #
-    # outer_mesh.add_attribute("vertex_index")
-    # outer_mesh.add_attribute("vertex_normal")
 
     # computer vertex distances to opposite surface
     inner_thickness = np.sqrt(pymesh.distance_to_mesh(outer_mesh, inner_mesh.vertices)[0])
@@ -793,8 +773,6 @@ def plot_mesh_segmentation(mesh1, mesh2):
 #tc_prob_file = '/media/pranjal.sahu/cde12877-34df-449d-8202-07ba08ef2e6e/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/12_MONTH/TC_probmap.nii.gz'
 
 
-
-
 #fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
 #tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
 
@@ -831,10 +809,12 @@ print("Extract surfaces")
 FC_prob_img = itk.imread(segmentation_file[0], itk.F)
 TC_prob_img = itk.imread(segmentation_file[1], itk.F)
 
-FC_verts, FC_faces, FC_itk_mesh = get_cuberille_mesh(FC_prob_img)
-TC_verts, TC_faces, TC_itk_mesh = get_cuberille_mesh(TC_prob_img)
+FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img)
+TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img)
 
-    
+print('Types of objects are ')
+print(type(FC_verts), type(FC_faces), type(FC_itk_mesh), type(FC_vtk_mesh))
+
 print('Got the Mesh. Now constructing PyMesh for further computation')
 
 FC_mesh = pymesh.form_mesh(FC_verts, FC_faces)
@@ -860,9 +840,56 @@ if 1:
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
+    print('Types of inner_mesh, outer_mesh ')
+    print(type(inner_mesh), type(outer_mesh), type(inner_face_list), type(outer_face_list), inner_face_list.shape)
+
+    
+    # For printing the points in the faces of the Mesh
+    TC_mesh_main_faces = TC_mesh_main.faces
+    TC_mesh_main_vertices = TC_mesh_main.vertices
+
+    point_ids = {}
+    for i in range(len(inner_face_list)):
+        temp_points = TC_mesh_main_faces[inner_face_list[i]]
+        for k in temp_points:
+            point_ids[k] = 1
+    point_ids = list(point_ids.keys())
+
+    points = vtk.vtkPoints()
+    #points.SetNumberOfPoints(len(point_ids))
+    points.SetNumberOfPoints(3)
+
+    for i in range(3):
+        points.SetPoint(i, TC_mesh_main_vertices[point_ids[i]])
+
+    selectionFilter = vtk.vtkSelectPolyData()
+    selectionFilter.SetInputData(TC_vtk_mesh)
+    selectionFilter.SetLoop(points)
+    selectionFilter.GenerateSelectionScalarsOff()
+    selectionFilter.SetSelectionModeToLargestRegion()
+    selectionFilter.Update()
+
+    selected_vtk_mesh = selectionFilter.GetOutput()
+    print('selected_vtk_mesh ', type(selected_vtk_mesh), selected_vtk_mesh.GetNumberOfPoints())
+
+    writer = vtk.vtkPolyDataWriter()
+    writer.SetFileVersion(42)
+    writer.SetInputData(selected_vtk_mesh)
+    writer.SetFileName('selected_vtk_mesh.vtk')
+    writer.Update()
+
+    selected_vtk_mesh
     end_time  = time.time()
     print('Elapsed Time ', end_time - start_time)
-    plot_mesh_segmentation(inner_mesh, outer_mesh)
+    #plot_mesh_segmentation(inner_mesh, outer_mesh)
+    # import visvis as vv
+    # mesh1 = selected_vtk_mesh
+    # app = vv.use()
+    # a1 = vv.subplot(111)
+    # FC_vis_up = vv.mesh(mesh1.vertices, mesh1.faces)#, values=FC_thickness)
+    # FC_vis_up.colormap = vv.CM_JET
+    # app.Run()
+
 else:
     smooth_rings = 1
     FC_thickness = compute_mesh_thickness(FC_mesh_main, 
