@@ -106,7 +106,7 @@ def my_resample_image(input_image):
     
     return resampled
 
-def get_cuberille_mesh(input_image):
+def get_cuberille_mesh(input_image, mesh_type):
     #input_image  = my_resample_image(input_image)
     
     InterpolatorType = itk.BSplineInterpolateImageFunction.IF3DF
@@ -127,12 +127,12 @@ def get_cuberille_mesh(input_image):
     cuberille_output = cuberille.GetOutput()
     
     # Write the Mesh to obtain the Largest Connected Component using VTK
-    itk.meshwrite(cuberille_output, 'cuberille_output.vtk')
+    itk.meshwrite(cuberille_output, 'cuberille_output_'+mesh_type+'.vtk')
     print('Got Cuberille Mesh')
     
     if 1:
         reader = vtk.vtkPolyDataReader()
-        reader.SetFileName('cuberille_output.vtk')
+        reader.SetFileName('cuberille_output_'+mesh_type+'.vtk')
         reader.Update()
         vtk_mesh = reader.GetOutput()
         print('Reading of Cuberille Output Done')
@@ -782,12 +782,12 @@ def plot_mesh_segmentation(mesh1, mesh2):
 #tc_prob_file = '/media/pranjal.sahu/cde12877-34df-449d-8202-07ba08ef2e6e/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/12_MONTH/TC_probmap.nii.gz'
 
 
-#fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
-#tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
+fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
+tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
 
 start_time  = time.time()
-fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/FC_probmap.nii.gz'
-tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/TC_probmap.nii.gz'
+#fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/FC_probmap.nii.gz'
+#tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/TC_probmap.nii.gz'
 
 
 segmentation_file =  (fc_prob_file, tc_prob_file)
@@ -818,8 +818,8 @@ print("Extract surfaces")
 FC_prob_img = itk.imread(segmentation_file[0], itk.F)
 TC_prob_img = itk.imread(segmentation_file[1], itk.F)
 
-FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img)
-TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img)
+FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img, 'FC')
+TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img, 'TC')
 
 print('Types of objects are ')
 print(type(FC_verts), type(FC_faces), type(FC_itk_mesh), type(FC_vtk_mesh))
@@ -842,10 +842,12 @@ TC_mesh_main = TC_mesh
 cell_normals = get_cell_normals(FC_itk_mesh)
 
 
+current_mesh = FC_mesh_main
+
 if 1:
     smooth_rings = 1
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(TC_mesh_main,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(current_mesh,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
@@ -854,43 +856,13 @@ if 1:
 
     
     # For printing the points in the faces of the Mesh
-    TC_mesh_main_faces = TC_mesh_main.faces
-    TC_mesh_main_vertices = TC_mesh_main.vertices
+    TC_mesh_main_faces = current_mesh.faces
+    TC_mesh_main_vertices = current_mesh.vertices
 
-    point_ids = {}
-    for i in range(len(inner_face_list)):
-        temp_points = TC_mesh_main_faces[inner_face_list[i]]
-        for k in temp_points:
-            point_ids[k] = 1
-    point_ids = list(point_ids.keys())
-
-    points = vtk.vtkPoints()
-    #points.SetNumberOfPoints(len(point_ids))
-    points.SetNumberOfPoints(3)
-
-    for i in range(3):
-        points.SetPoint(i, TC_mesh_main_vertices[point_ids[i]])
-
-    selectionFilter = vtk.vtkSelectPolyData()
-    selectionFilter.SetInputData(TC_vtk_mesh)
-    selectionFilter.SetLoop(points)
-    selectionFilter.GenerateSelectionScalarsOff()
-    selectionFilter.SetSelectionModeToLargestRegion()
-    selectionFilter.Update()
-
-    selected_vtk_mesh = selectionFilter.GetOutput()
-    print('selected_vtk_mesh ', type(selected_vtk_mesh), selected_vtk_mesh.GetNumberOfPoints())
-
-    writer = vtk.vtkPolyDataWriter()
-    writer.SetFileVersion(42)
-    writer.SetInputData(selected_vtk_mesh)
-    writer.SetFileName('selected_vtk_mesh.vtk')
-    writer.Update()
-
-    selected_vtk_mesh
+    
     end_time  = time.time()
     print('Elapsed Time ', end_time - start_time)
-    #plot_mesh_segmentation(inner_mesh, outer_mesh)
+    plot_mesh_segmentation(inner_mesh, outer_mesh)
     # import visvis as vv
     # mesh1 = selected_vtk_mesh
     # app = vv.use()
