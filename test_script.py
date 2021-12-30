@@ -867,10 +867,10 @@ TC_mesh_main = TC_mesh
 cell_normals = get_cell_normals(FC_itk_mesh)
 
 
-if 0:
-    smooth_rings = 0
+if 1:
+    smooth_rings = 2
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(FC_mesh_main,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(FC_mesh_main,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
@@ -878,7 +878,7 @@ if 0:
 else:
     FC_thickness = compute_mesh_thickness(FC_mesh_main, 
                                       cartilage='FC', 
-                                      smooth_rings=5, 
+                                      smooth_rings=10, 
                                       max_rings=None,
                                       n_workers=1)
 
