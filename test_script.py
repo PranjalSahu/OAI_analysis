@@ -139,22 +139,45 @@ def get_cuberille_mesh(input_image, mesh_type):
         
         connectivityFilter = vtk.vtkPolyDataConnectivityFilter()
         connectivityFilter.SetInputData(vtk_mesh)
-        connectivityFilter.SetExtractionModeToLargestRegion()
+        connectivityFilter.SetExtractionModeToAllRegions()
         connectivityFilter.Update()
-        largest_connected_output = connectivityFilter.GetOutput()
+        
+        valid_meshes = []
+        append_polydata = vtk.vtkAppendPolyData()
+
+        for i in range(connectivityFilter.GetNumberOfExtractedRegions()):
+            connectivityFilter.AddSpecifiedRegion(i)
+            connectivityFilter.SetExtractionModeToSpecifiedRegions()
+            connectivityFilter.Update()
+            
+            out1 = connectivityFilter.GetOutput()
+            
+            #print(i, out1.GetNumberOfCells(), out1.GetNumberOfPoints())
+            
+            if out1.GetNumberOfCells() > 1000:
+                polydata = vtk.vtkPolyData()
+                polydata.ShallowCopy(out1)
+                append_polydata.AddInputData(polydata)
+            
+            connectivityFilter.DeleteSpecifiedRegion(i)
+        
+        append_polydata.Update()
+        
+        output_combined = append_polydata.GetOutput()
+
         writer = vtk.vtkPolyDataWriter()
         writer.SetFileVersion(42)
-        writer.SetInputData(largest_connected_output)
-        writer.SetFileName('largest_connected_output.vtk')
+        writer.SetInputData(output_combined)
+        writer.SetFileName('output_combined_'+mesh_type+'.vtk')
         writer.Update()
-        print('Got Largest Connected Component')
+        print('Got Filtered Mesh with only large connected components')
 
-        print('largest_connected_output cells ', largest_connected_output.GetNumberOfCells())
+        print('output_combined cells ', output_combined.GetNumberOfCells())
         print('vtk_mesh cells ', vtk_mesh.GetNumberOfCells())
 
         # Read the Largest Connected Component as ITK Mesh
-        output = itk.meshread('largest_connected_output.vtk')
-        print('Reading of largest_connected_output Done')
+        output = itk.meshread('output_combined_'+mesh_type+'.vtk')
+        print('Reading of output_combined Done')
     
     #output = cuberille_output
     verts = np.zeros([output.GetNumberOfPoints(), 3])
@@ -171,7 +194,7 @@ def get_cuberille_mesh(input_image, mesh_type):
     for i in range(verts.shape[0]):
         verts[i] = output.GetPoints().ElementAt(i)
     
-    return verts, faces, output, largest_connected_output
+    return verts, faces, output, output_combined
 
 def get_neighbors(mesh, root, element, search_range=1, edge_only=False):
     """
