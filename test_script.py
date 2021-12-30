@@ -38,24 +38,15 @@ def get_cell_normals(itk_mesh):
     reader.Update()
 
     vtk_mesh = reader.GetOutput()
-    
-    # Get the Largest region for FC
-    connectivityFilter = vtk.vtkConnectivityFilter()
-    connectivityFilter.SetInputData(vtk_mesh)
-    connectivityFilter.SetExtractionModeToLargestRegion()
-    connectivityFilter.ColorRegionsOn()
-    connectivityFilter.Update()
-
-    vtk_mesh1 = connectivityFilter.GetOutput()
 
     # Get Normals for the cells of the mesh
     normals_filter = vtk.vtkPolyDataNormals()
-    normals_filter.SetInputData(vtk_mesh1)
+    normals_filter.SetInputData(vtk_mesh)
     normals_filter.ComputePointNormalsOn()
     normals_filter.ComputeCellNormalsOn()
     normals_filter.SplittingOff()
     normals_filter.ConsistencyOn()
-    normals_filter.AutoOrientNormalsOn()
+    normals_filter.AutoOrientNormalsOff()
     normals_filter.Update()
     
     output1 = normals_filter.GetOutput()
@@ -364,7 +355,7 @@ def smooth_mesh_segmentation(mesh, face_labels, smooth_rings, max_rings=None, n_
     return inner_mesh, outer_mesh, inner_face_list, outer_face_list
 
 # Check the labels output obtained by only using face_normal and connect_direction
-def split_femoral_cartilage_surface(mesh, face_normal1, smooth_rings=1, max_rings=None, n_workers=1):
+def split_femoral_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_workers=1):
     """
     Split a cartilage surface mesh into the inner and outer surface
     :param mesh:femoral cartilage surface mesh
@@ -385,7 +376,6 @@ def split_femoral_cartilage_surface(mesh, face_normal1, smooth_rings=1, max_ring
     center = (bbox_min + bbox_max) / 2
     
     print('Number of faces in normal and mesh')
-    print(face_normal1.shape, mesh.num_faces)
     
     inner_outer_label_list = np.zeros(mesh.num_faces)  # up:1, down:-1
     for k in range(mesh.num_faces):
@@ -397,7 +387,7 @@ def split_femoral_cartilage_surface(mesh, face_normal1, smooth_rings=1, max_ring
         # we only cares the direction on x-y plane
         # print(k, face_normal[k].shape, np.sign(face_normal[k]), face_normal[k])
         
-        if np.dot(connect_direction[:2], face_normal1[k, :2]) < 0:
+        if np.dot(connect_direction[:2], face_normal[k, :2]) < 0:
             inner_outer_label_list[k] = 1
         else:
             inner_outer_label_list[k] = -1
@@ -876,14 +866,31 @@ TC_mesh_main = TC_mesh
 
 cell_normals = get_cell_normals(FC_itk_mesh)
 
-smooth_rings = 0
-max_rings = None
-inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(FC_mesh_main,
-                                                                                           cell_normals,
-                                                                                        smooth_rings=smooth_rings,
-                                                                                        max_rings=max_rings,
-                                                                                        n_workers=1)
-plot_mesh_segmentation(inner_mesh, outer_mesh)
+
+if 0:
+    smooth_rings = 0
+    max_rings = None
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(FC_mesh_main,
+                                                                                            smooth_rings=smooth_rings,
+                                                                                            max_rings=max_rings,
+                                                                                            n_workers=1)
+    plot_mesh_segmentation(inner_mesh, outer_mesh)
+else:
+    FC_thickness = compute_mesh_thickness(FC_mesh_main, 
+                                      cartilage='FC', 
+                                      smooth_rings=5, 
+                                      max_rings=None,
+                                      n_workers=1)
+
+
+    import visvis as vv
+    mesh1 = FC_mesh_main
+    app = vv.use()
+    a1 = vv.subplot(111)
+    FC_vis_up = vv.mesh(mesh1.vertices, mesh1.faces, values=FC_thickness)
+    FC_vis_up.colormap = vv.CM_JET
+    app.Run()
+
 # smooth_rings = 5
 # max_rings = None
 # inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(TC_mesh_main,
