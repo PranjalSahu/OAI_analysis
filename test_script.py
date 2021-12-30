@@ -822,37 +822,17 @@ elif coord == 'nifti':
 spacing = segmentation[0].GetSpacing()
 
 
-# get_cartilage_surface_mesh_from_segmentation_array(FC_prob, TC_prob,
-#                                                   spacing=spacing,
-#                                                   thickness=thickness,
-#                                                   save_path_TC=save_path_TC,
-#                                                   save_path_FC=save_path_FC,
-#                                                   prob=prob,
-#                                                   transform=transform)
-
 thickness = True
 prob = True
 
 
 print("Extract surfaces")
 
-marching_cubes = False
+FC_prob_img = itk.imread(segmentation_file[0], itk.F)
+TC_prob_img = itk.imread(segmentation_file[1], itk.F)
 
-if marching_cubes:
-    FC_verts, FC_faces, FC_normals, FC_values = measure.marching_cubes_lewiner(FC_prob, 0.2,
-                                                                               spacing=spacing,
-                                                                               step_size=1, 
-                                                                               gradient_direction="ascent")
-    TC_verts, TC_faces, TC_normals, TC_values = measure.marching_cubes_lewiner(TC_prob, 0.2,
-                                                                               spacing=spacing,
-                                                                               step_size=1, 
-                                                                               gradient_direction="ascent")
-else:
-    FC_prob_img = itk.imread(segmentation_file[0], itk.F)
-    TC_prob_img = itk.imread(segmentation_file[1], itk.F)
-
-    FC_verts, FC_faces, FC_itk_mesh = get_cuberille_mesh(FC_prob_img)
-    TC_verts, TC_faces, TC_itk_mesh = get_cuberille_mesh(TC_prob_img)
+FC_verts, FC_faces, FC_itk_mesh = get_cuberille_mesh(FC_prob_img)
+TC_verts, TC_faces, TC_itk_mesh = get_cuberille_mesh(TC_prob_img)
 
     
 print('Got the Mesh. Now constructing PyMesh for further computation')
@@ -876,7 +856,7 @@ cell_normals = get_cell_normals(FC_itk_mesh)
 if 1:
     smooth_rings = 1
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(FC_mesh_main,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(TC_mesh_main,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
