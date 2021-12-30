@@ -41,14 +41,13 @@ def get_cell_normals(itk_mesh):
 
     vtk_mesh = reader.GetOutput()
 
-    print('Obtained the vtk_mesh from the itk_mesh')
     # Get Normals for the cells of the mesh
     normals_filter = vtk.vtkPolyDataNormals()
     normals_filter.SetInputData(vtk_mesh)
     normals_filter.ComputePointNormalsOn()
     normals_filter.ComputeCellNormalsOn()
     normals_filter.SplittingOff()
-    normals_filter.ConsistencyOff()
+    normals_filter.ConsistencyOn()
     normals_filter.AutoOrientNormalsOff()
     normals_filter.Update()
     
@@ -107,7 +106,7 @@ def my_resample_image(input_image):
     
     return resampled
 
-def get_cuberille_mesh(input_image, mesh_type):
+def get_cuberille_mesh(input_image):
     #input_image  = my_resample_image(input_image)
     
     InterpolatorType = itk.BSplineInterpolateImageFunction.IF3DF
@@ -127,45 +126,52 @@ def get_cuberille_mesh(input_image, mesh_type):
     cuberille.Update()
     cuberille_output = cuberille.GetOutput()
     
-    print('Got Cuberille Mesh ', mesh_type)
+    # Write the Mesh to obtain the Largest Connected Component using VTK
+    itk.meshwrite(cuberille_output, 'cuberille_output.vtk')
+    print('Got Cuberille Mesh')
     
     if 1:
-        # Get the Largest region for FC
-        # Get the largest two region for TC
-        # Change it later to delete regions which are small
-        connectivityFilter = itk.ConnectedRegionsMeshFilter.MF3MF3.New()
-        connectivityFilter.SetInput(cuberille_output)
+        reader = vtk.vtkPolyDataReader()
+        reader.SetFileName('cuberille_output.vtk')
+        reader.Update()
+        vtk_mesh = reader.GetOutput()
+        print('Reading of Cuberille Output Done')
+        
+        connectivityFilter = vtk.vtkPolyDataConnectivityFilter()
+        connectivityFilter.SetInputData(vtk_mesh)
         connectivityFilter.SetExtractionModeToLargestRegion()
         connectivityFilter.Update()
-        output = connectivityFilter.GetOutput()
-
+        largest_connected_output = connectivityFilter.GetOutput()
+        writer = vtk.vtkPolyDataWriter()
+        writer.SetFileVersion(42)
+        writer.SetInputData(largest_connected_output)
+        writer.SetFileName('largest_connected_output.vtk')
+        writer.Update()
         print('Got Largest Connected Component')
 
-    
-    print('Number of output cells ', output.GetNumberOfCells())
-    print('Number of cuberille_output cells ', cuberille_output.GetNumberOfCells())
+        print('largest_connected_output cells ', largest_connected_output.GetNumberOfCells())
+        print('vtk_mesh cells ', vtk_mesh.GetNumberOfCells())
 
+        # Read the Largest Connected Component as ITK Mesh
+        output = itk.meshread('largest_connected_output.vtk')
+        print('Reading of largest_connected_output Done')
+    
     #output = cuberille_output
     verts = np.zeros([output.GetNumberOfPoints(), 3])
     faces = np.zeros([output.GetNumberOfCells(), 3])
     
     c = output.GetCells()
     
-    counter = 0
     for i in range(faces.shape[0]):
         e = c.GetElement(i)
-        if e != None:
-            pd = e.GetPointIdsContainer()
-            pd_numpy = np.array(pd)
-            faces[counter] = pd_numpy
-            counter = counter+1
-        else:
-            print('Cell is None ', mesh_type, i, e)
-    print('Valid Cells are ', counter, ' Deleted Cells are  ', cuberille_output.GetNumberOfCells() - counter)
+        pd = e.GetPointIdsContainer()
+        pd_numpy = np.array(pd)
+        faces[i] = pd_numpy
+    
     for i in range(verts.shape[0]):
         verts[i] = output.GetPoints().ElementAt(i)
     
-    return verts, faces, output
+    return verts, faces, output, largest_connected_output
 
 def get_neighbors(mesh, root, element, search_range=1, edge_only=False):
     """
@@ -812,18 +818,17 @@ print("Extract surfaces")
 FC_prob_img = itk.imread(segmentation_file[0], itk.F)
 TC_prob_img = itk.imread(segmentation_file[1], itk.F)
 
-FC_verts, FC_faces, FC_itk_mesh = get_cuberille_mesh(FC_prob_img, 'FC')
-TC_verts, TC_faces, TC_itk_mesh = get_cuberille_mesh(TC_prob_img, 'TC')
+FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img)
+TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img)
 
 print('Types of objects are ')
-print(type(FC_verts), type(FC_faces), type(FC_itk_mesh))
+print(type(FC_verts), type(FC_faces), type(FC_itk_mesh), type(FC_vtk_mesh))
 
 print('Got the Mesh. Now constructing PyMesh for further computation')
 
 FC_mesh = pymesh.form_mesh(FC_verts, FC_faces)
 TC_mesh = pymesh.form_mesh(TC_verts, TC_faces)
 
-print('PyMesh is constructed using the vertices and cells from ITK')
 #FC_mesh, _ = pymesh.remove_duplicated_vertices(FC_mesh)
 #TC_mesh, _ = pymesh.remove_duplicated_vertices(TC_mesh)
 
@@ -836,7 +841,6 @@ TC_mesh_main = TC_mesh
 
 cell_normals = get_cell_normals(FC_itk_mesh)
 
-print('Got the Cell Normals')
 
 if 1:
     smooth_rings = 1
