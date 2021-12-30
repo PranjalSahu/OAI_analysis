@@ -152,9 +152,9 @@ def get_cuberille_mesh(input_image, mesh_type):
             
             out1 = connectivityFilter.GetOutput()
             
-            #print(i, out1.GetNumberOfCells(), out1.GetNumberOfPoints())
+            print(i, out1.GetNumberOfCells(), out1.GetNumberOfPoints())
             
-            if out1.GetNumberOfCells() > 1000:
+            if out1.GetNumberOfCells() > 3000:
                 polydata = vtk.vtkPolyData()
                 polydata.ShallowCopy(out1)
                 append_polydata.AddInputData(polydata)
@@ -805,8 +805,8 @@ def plot_mesh_segmentation(mesh1, mesh2):
 #tc_prob_file = '/media/pranjal.sahu/cde12877-34df-449d-8202-07ba08ef2e6e/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/12_MONTH/TC_probmap.nii.gz'
 
 
-fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
-tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
+fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/72_MONTH/FC_probmap.nii.gz'
+tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/72_MONTH/TC_probmap.nii.gz'
 
 start_time  = time.time()
 #fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/FC_probmap.nii.gz'
