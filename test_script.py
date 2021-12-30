@@ -7,6 +7,7 @@ import time
 from functools import partial
 from multiprocessing import Pool
 from sklearn.cluster import KMeans
+from sklearn.cluster import SpectralClustering
 import matplotlib as mpl
 from skimage import measure
 
@@ -117,8 +118,8 @@ def get_cuberille_mesh(input_image):
     cuberille.GenerateTriangleFacesOn()
     cuberille.ProjectVerticesToIsoSurfaceOn()
     cuberille.SetProjectVertexSurfaceDistanceThreshold(0.001)
-    cuberille.SetProjectVertexMaximumNumberOfSteps(1000)
-    cuberille.SetProjectVertexStepLength(0.5)
+    cuberille.SetProjectVertexMaximumNumberOfSteps(50)
+    cuberille.SetProjectVertexStepLength(0.25)
     cuberille.SetInterpolator(interpolator)
     
     cuberille.Update()
@@ -435,9 +436,9 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
     mesh_normals = mesh.get_attribute('face_normal').reshape(-1, 3)
 
     # clustering normals
-    features = np.concatenate((mesh_centroids_normalized * 2, mesh_normals * 1), axis=1)
+    features = np.concatenate((mesh_centroids_normalized * 1, mesh_normals * 10), axis=1)
     est = KMeans(n_clusters=2)
-    # est = SpectralClustering(n_clusters=2)
+    #est = SpectralClustering(n_clusters=2)
     labels = est.fit(features).labels_
 
     # transfer 0/1 labels to -1/1 labels
@@ -794,8 +795,13 @@ def plot_mesh_segmentation(mesh1, mesh2):
 
 
 
-fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
-tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
+#fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/FC_probmap.nii.gz'
+#tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/LEFT_KNEE/96_MONTH/TC_probmap.nii.gz'
+
+start_time  = time.time()
+fc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/FC_probmap.nii.gz'
+tc_prob_file = '/mnt/newdrive/OLD/DATASETS/example_oai_data/example_data/OAI_results/9010060/MR_SAG_3D_DESS/RIGHT_KNEE/24_MONTH/TC_probmap.nii.gz'
+
 
 segmentation_file =  (fc_prob_file, tc_prob_file)
 
@@ -868,21 +874,25 @@ cell_normals = get_cell_normals(FC_itk_mesh)
 
 
 if 1:
-    smooth_rings = 2
+    smooth_rings = 1
     max_rings = None
     inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(FC_mesh_main,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
+    end_time  = time.time()
+    print('Elapsed Time ', end_time - start_time)
     plot_mesh_segmentation(inner_mesh, outer_mesh)
 else:
+    smooth_rings = 1
     FC_thickness = compute_mesh_thickness(FC_mesh_main, 
                                       cartilage='FC', 
-                                      smooth_rings=10, 
+                                      smooth_rings=smooth_rings, 
                                       max_rings=None,
                                       n_workers=1)
 
-
+    end_time  = time.time()
+    print('Elapsed Time ', end_time - start_time)
     import visvis as vv
     mesh1 = FC_mesh_main
     app = vv.use()
