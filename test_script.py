@@ -463,7 +463,7 @@ def compute_mesh_thickness(mesh, cartilage, smooth_rings=1, max_rings=None, n_wo
 
     # split the cartilage into inner surface that interfacing the bone and the outer surface
     if cartilage == 'FC':
-        inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(mesh,
+        inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(mesh,
                                                                                                    smooth_rings=smooth_rings,
                                                                                                    max_rings=max_rings,
                                                                                                    n_workers=n_workers)
