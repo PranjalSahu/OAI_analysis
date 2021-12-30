@@ -144,6 +144,9 @@ def get_cuberille_mesh(input_image, mesh_type):
         
         valid_meshes = []
         append_polydata = vtk.vtkAppendPolyData()
+        
+        smoothing_filter = vtk.vtkSmoothPolyDataFilter()
+        smoothing_filter.SetNumberOfIterations(50) 
 
         for i in range(connectivityFilter.GetNumberOfExtractedRegions()):
             connectivityFilter.AddSpecifiedRegion(i)
@@ -152,8 +155,12 @@ def get_cuberille_mesh(input_image, mesh_type):
             
             out1 = connectivityFilter.GetOutput()
             
-            print(i, out1.GetNumberOfCells(), out1.GetNumberOfPoints())
+            #print(i, out1.GetNumberOfCells(), out1.GetNumberOfPoints())
             
+            smoothing_filter.SetInputData(out1)
+            smoothing_filter.Update()
+            out1 = smoothing_filter.GetOutput()
+
             if out1.GetNumberOfCells() > 3000:
                 polydata = vtk.vtkPolyData()
                 polydata.ShallowCopy(out1)
@@ -443,7 +450,6 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
 
     mesh.add_attribute("face_centroid")
     mesh.add_attribute("face_normal")
-    mesh.add_attribute("face_index")
     #mesh.add_attribute("vertex_gaussian_curvature")
     
     mesh_centroids = mesh.get_attribute('face_centroid').reshape(-1, 3)
@@ -451,7 +457,7 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
                                 (np.max(mesh_centroids, axis=0) - np.min(mesh_centroids, axis=0))
 
     mesh_normals = mesh.get_attribute('face_normal').reshape(-1, 3)
-    mesh_face_index = mesh.get_attribute('face_index').reshape(-1, 1)
+    #mesh_face_index = mesh.get_attribute('face_index').reshape(-1, 1)
 
     # clustering normals
     features = np.concatenate((mesh_centroids_normalized * 1, mesh_normals * 1), axis=1)
@@ -798,6 +804,70 @@ def plot_mesh_segmentation(mesh1, mesh2):
     
     app.Run()
 
+def get_vtk_mesh(verts, faces):
+    points = vtk.vtkPoints()
+    cells = vtk.vtkCellArray()
+
+    # Add Cells
+    point_ids_hash = {}
+    for i in range(0, faces.shape[0]):
+        tri = vtk.vtkTriangle()
+        current_cell_points = faces[i]
+        
+        for i in range(3):
+            point_id = current_cell_points[i]
+            tri.GetPointIds().SetId(i, point_id)
+            point_ids_hash[point_id] = 1
+        
+        cells.InsertNextCell(tri)
+
+    points.SetNumberOfPoints(len(list(point_ids_hash.keys())))
+
+    # Add points
+    for i in point_ids_hash:
+        p = verts[i]
+        points.SetPoint(i, p)
+
+    # Create a poly data object
+    vtk_mesh = vtk.vtkPolyData()
+    # Set the points and vertices we created as the geometry and topology of the polydata
+    vtk_mesh.SetPoints(points)
+    vtk_mesh.SetPolys(cells)
+    vtk_mesh.Modified()
+
+    connectivityFilter = vtk.vtkPolyDataConnectivityFilter()
+    connectivityFilter.SetInputData(vtk_mesh)
+    connectivityFilter.SetExtractionModeToAllRegions()
+    connectivityFilter.Update()
+        
+    valid_meshes = []
+    append_polydata = vtk.vtkAppendPolyData()
+    
+    smoothing_filter = vtk.vtkSmoothPolyDataFilter()
+    smoothing_filter.SetNumberOfIterations(50) 
+
+    for i in range(connectivityFilter.GetNumberOfExtractedRegions()):
+        connectivityFilter.AddSpecifiedRegion(i)
+        connectivityFilter.SetExtractionModeToSpecifiedRegions()
+        connectivityFilter.Update()
+        
+        out1 = connectivityFilter.GetOutput()
+        
+        smoothing_filter.SetInputData(out1)
+        smoothing_filter.Update()
+        out1 = smoothing_filter.GetOutput()
+
+        if out1.GetNumberOfCells() > 3000:
+            polydata = vtk.vtkPolyData()
+            polydata.ShallowCopy(out1)
+            append_polydata.AddInputData(polydata)
+        
+        connectivityFilter.DeleteSpecifiedRegion(i)
+    
+    append_polydata.Update()
+    output_combined = append_polydata.GetOutput()
+
+    return output_combined
 
 # [STAR] Code For Testing the split_femoral_cartilage_surface method
 
@@ -817,8 +887,6 @@ segmentation_file =  (fc_prob_file, tc_prob_file)
 
 segmentation = [sitk.ReadImage(file) for file in segmentation_file]
 
-
-#print()
 FC_prob = np.swapaxes(sitk.GetArrayFromImage(segmentation[0]), 0, 2).astype(float)
 TC_prob = np.swapaxes(sitk.GetArrayFromImage(segmentation[1]), 0, 2).astype(float)
 
@@ -835,42 +903,63 @@ spacing = segmentation[0].GetSpacing()
 thickness = True
 prob = True
 
-
 print("Extract surfaces")
 
 FC_prob_img = itk.imread(segmentation_file[0], itk.F)
 TC_prob_img = itk.imread(segmentation_file[1], itk.F)
 
-FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img, 'FC')
-TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img, 'TC')
+FC_verts, FC_faces, FC_normals, FC_values = measure.marching_cubes_lewiner(FC_prob, 0.2,
+                                                                               spacing=spacing,
+                                                                               step_size=1, 
+                                                                               gradient_direction="ascent")
+TC_verts, TC_faces, TC_normals, TC_values = measure.marching_cubes_lewiner(TC_prob, 0.2,
+                                                                            spacing=spacing,
+                                                                            step_size=1, 
+                                                                            gradient_direction="ascent")
+                                                                            
+#FC_verts, FC_faces, FC_itk_mesh, FC_vtk_mesh = get_cuberille_mesh(FC_prob_img, 'FC')
+#TC_verts, TC_faces, TC_itk_mesh, TC_vtk_mesh = get_cuberille_mesh(TC_prob_img, 'TC')
 
-print('Types of objects are ')
-print(type(FC_verts), type(FC_faces), type(FC_itk_mesh), type(FC_vtk_mesh))
+#print('Types of objects are ')
+#print(type(FC_verts), type(FC_faces), type(FC_itk_mesh), type(FC_vtk_mesh))
 
 print('Got the Mesh. Now constructing PyMesh for further computation')
 
-FC_mesh = pymesh.form_mesh(FC_verts, FC_faces)
-TC_mesh = pymesh.form_mesh(TC_verts, TC_faces)
+#FC_mesh = pymesh.form_mesh(FC_verts, FC_faces)
+#TC_mesh = pymesh.form_mesh(TC_verts, TC_faces)
 
-#FC_mesh, _ = pymesh.remove_duplicated_vertices(FC_mesh)
-#TC_mesh, _ = pymesh.remove_duplicated_vertices(TC_mesh)
-
-#FC_mesh_main = get_main_mesh(pymesh.separate_mesh(FC_mesh), threshold=1000, merge=True)
-#TC_mesh_main = get_main_mesh(pymesh.separate_mesh(TC_mesh), threshold=1000, merge=True)
+FC_mesh = get_vtk_mesh(FC_verts, FC_faces)
+TC_mesh = get_vtk_mesh(TC_verts, TC_faces)
 
 FC_mesh_main = FC_mesh
 TC_mesh_main = TC_mesh
 
 
-cell_normals = get_cell_normals(FC_itk_mesh)
+#cell_normals = get_cell_normals(FC_itk_mesh)
 
+
+# writer = vtk.vtkPolyDataWriter()
+# writer.SetFileVersion(42)
+
+# writer.SetFileName('FC_mesh.vtk')
+# writer.SetInputData(FC_mesh)
+# writer.Write()
+
+# writer.SetFileName('TC_mesh.vtk')
+# writer.SetInputData(TC_mesh)
+# writer.Write()
+
+
+
+import sys
+sys.exit()
 
 current_mesh = FC_mesh_main
 
 if 1:
     smooth_rings = 1
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(current_mesh,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(current_mesh,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
