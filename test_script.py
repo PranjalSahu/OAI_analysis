@@ -1038,6 +1038,31 @@ if 1:
     writer.SetFileName('outer_mesh.vtk')
     writer.Update()
 
+    distance_filter = vtk.vtkDistancePolyDataFilter()
+
+    distance_filter.SetInputData(0, inner_mesh)
+    distance_filter.SetInputData(1, outer_mesh)
+    distance_filter.SignedDistanceOff()
+    distance_filter.SetComputeSecondDistance(True)
+    distance_filter.Update()
+    
+    distance_inner = distance_filter.GetOutput()
+    distance_outer = distance_filter.GetSecondDistanceOutput ()
+
+    writer.SetInputData(distance_inner)
+    writer.SetFileName('distance_inner.vtk')
+    writer.Update()
+
+    writer.SetInputData(distance_outer)
+    writer.SetFileName('distance_outer.vtk')
+    writer.Update()
+
+    print(inner_mesh.GetNumberOfPoints(), distance_inner.GetNumberOfPoints())
+    print(outer_mesh.GetNumberOfPoints(), distance_outer.GetNumberOfPoints())
+
+    #print('Distance output type is ', type(distance_output))
+    #print('Distance output is ', distance_output)
+    
     #view(geometries=[inner_mesh, outer_mesh])
 
     #plot_mesh_segmentation(inner_mesh, outer_mesh)
