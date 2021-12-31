@@ -1004,14 +1004,14 @@ print(FC_mesh_cell_centroids.shape)
 print(TC_mesh_cell_centroids.shape)
 
 
-current_mesh = TC_mesh_main
-current_face_normals = TC_mesh_cell_normals
-current_face_centroids = TC_mesh_cell_centroids
+current_mesh = FC_mesh_main
+current_face_normals = FC_mesh_cell_normals
+current_face_centroids = FC_mesh_cell_centroids
 
 if 1:
     smooth_rings = 0
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(current_mesh,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(current_mesh,
                                                                                             current_face_normals,
                                                                                             current_face_centroids,
                                                                                             smooth_rings=smooth_rings,
@@ -1038,8 +1038,8 @@ if 1:
     writer.SetFileName('outer_mesh.vtk')
     writer.Update()
 
+    # For getting the distance of meshes
     distance_filter = vtk.vtkDistancePolyDataFilter()
-
     distance_filter.SetInputData(0, inner_mesh)
     distance_filter.SetInputData(1, outer_mesh)
     distance_filter.SignedDistanceOff()
