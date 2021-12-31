@@ -32,15 +32,21 @@ from vtk import vtkConnectivityFilter
 
 # [STAR] All the Helper functions
 
-def get_cell_normals(itk_mesh):
-    itk.meshwrite(itk_mesh, 'itk_mesh.vtk')
-    
-    reader = vtk.vtkPolyDataReader()
-    reader.SetFileName('itk_mesh.vtk')
-    reader.Update()
+# Get Centroid of all the cells
+def get_cell_centroid(vtk_mesh):
+    centroid_array = np.zeros([vtk_mesh.GetNumberOfCells(), 3])
+    num_of_cells = vtk_mesh.GetNumberOfCells()
 
-    vtk_mesh = reader.GetOutput()
+    for i in range(num_of_cells):
+        c = vtk_mesh.GetCell(i)
+        p = c.GetPoints()
+        p1 = np.array(p.GetData())
+        centroid_array[i] = np.mean(p1, axis=0)
 
+    return centroid_array
+
+# Get Normal of all the cells
+def get_cell_normals(vtk_mesh):
     # Get Normals for the cells of the mesh
     normals_filter = vtk.vtkPolyDataNormals()
     normals_filter.SetInputData(vtk_mesh)
@@ -306,6 +312,49 @@ def get_main_mesh(meshes, threshold=1, merge=True):
     else:
         return pymesh.merge_meshes([meshes[i] for i in main_mesh_indices])
 
+# Create a Mesh by selecting relevant faces only
+def get_vtk_sub_mesh(input_mesh, inner_face_list):
+    points = vtk.vtkPoints()
+    cells = vtk.vtkCellArray()
+
+    # Add Cells
+    counter = 0
+    point_ids_hash = {}
+    for i in inner_face_list:
+        tri = vtk.vtkTriangle()
+        current_cell_points = input_mesh.GetCell(i).GetPointIds()
+        
+        for i in range(3):
+            point_id = current_cell_points.GetId(i)
+            
+            if point_id in point_ids_hash:
+                new_point_id = point_ids_hash[point_id]
+            else:
+                new_point_id = counter
+                point_ids_hash[point_id] = new_point_id
+                counter = counter + 1
+            
+            tri.GetPointIds().SetId(i, new_point_id)
+        
+        cells.InsertNextCell(tri)
+
+    points.SetNumberOfPoints(len(list(point_ids_hash.keys())))
+
+    # Add points
+    for i in point_ids_hash:
+        p = input_mesh.GetPoint(i)
+        new_id = point_ids_hash[i]
+        points.SetPoint(new_id, p)
+
+    # Create a poly data object
+    polydata = vtk.vtkPolyData()
+    # Set the points and vertices we created as the geometry and topology of the polydata
+    polydata.SetPoints(points)
+    polydata.SetPolys(cells)
+    polydata.Modified()
+
+    return polydata
+
 def smooth_mesh_segmentation(mesh, face_labels, smooth_rings, max_rings=None, n_workers=1):
     """
     Spatially smooth the binary labels of face labels on a surface mesh, the smoothing is done by nearest neighbors
@@ -328,8 +377,10 @@ def smooth_mesh_segmentation(mesh, face_labels, smooth_rings, max_rings=None, n_
         inner_face_list = np.where(face_labels == -1)[0]
         outer_face_list = np.where(face_labels == 1)[0]
 
-        inner_mesh = pymesh.submesh(mesh, inner_face_list, num_rings=0)
-        outer_mesh = pymesh.submesh(mesh, outer_face_list, num_rings=0)
+        inner_mesh = get_vtk_sub_mesh(mesh, inner_face_list)
+        outer_mesh = get_vtk_sub_mesh(mesh, outer_face_list)
+        #inner_mesh = pymesh.submesh(mesh, inner_face_list, num_rings=0)
+        #outer_mesh = pymesh.submesh(mesh, outer_face_list, num_rings=0)
         return inner_mesh, outer_mesh, inner_face_list, outer_face_list
 
     if max_rings is None:
@@ -378,7 +429,7 @@ def smooth_mesh_segmentation(mesh, face_labels, smooth_rings, max_rings=None, n_
     return inner_mesh, outer_mesh, inner_face_list, outer_face_list
 
 # Check the labels output obtained by only using face_normal and connect_direction
-def split_femoral_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_workers=1):
+def split_femoral_cartilage_surface(mesh, face_normal, face_centroid, smooth_rings=1, max_rings=None, n_workers=1):
     """
     Split a cartilage surface mesh into the inner and outer surface
     :param mesh:femoral cartilage surface mesh
@@ -387,21 +438,17 @@ def split_femoral_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_work
     :return: inner_mesh(label -1, surface touching bones), outer_mesh(label 1),
     inner_face_list(face indices of inner mesh), outer_face_list(face indices of outer mesh)
     """
-    mesh.add_attribute("face_normal")
-    mesh.add_attribute("face_centroid")
-
+    
     # face normals are towards the inner of cartilage surface
-    face_normal = mesh.get_attribute("face_normal").reshape([-1, 3])
-    face_centroid = mesh.get_attribute("face_centroid").reshape([-1, 3])
-
     # get the center of bounding box of femoral cartilage
-    bbox_min, bbox_max = mesh.bbox
+    (xmin,xmax,ymin,ymax,zmin,zmax)  = mesh.GetBounds()
+    bbox_min = np.array([xmin, ymin, zmin])
+    bbox_max = np.array([xmax, ymax, zmax])
+
     center = (bbox_min + bbox_max) / 2
     
-    print('Number of faces in normal and mesh')
-    
-    inner_outer_label_list = np.zeros(mesh.num_faces)  # up:1, down:-1
-    for k in range(mesh.num_faces):
+    inner_outer_label_list = np.zeros(mesh.GetNumberOfCells())  # up:1, down:-1
+    for k in range(mesh.GetNumberOfCells()):
     #for k in range(face_normal1.shape[0]):
         # get the direction from the center to the current face centroid
         connect_direction = center - face_centroid[k, :]
@@ -418,20 +465,23 @@ def split_femoral_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_work
     # For debugging purpose only
     # To check if the normal vector has same direction in both 
     # Cuberille Mesh and Marching Cubes Mesh
-    for k in range(mesh.num_faces):
-        # get the direction from the center to the current face centroid
-        connect_direction = center - face_centroid[k, :]
+    # for k in range(mesh.num_faces):
+    #     # get the direction from the center to the current face centroid
+    #     connect_direction = center - face_centroid[k, :]
 
-        # if the direction is the same with the normal, then it is outer side (labeled as -1) of cartilage surface
-        # we only cares the direction on x-y plane
-        # print(k, face_normal[k].shape, np.sign(face_normal[k]), face_normal[k])
+    #     # if the direction is the same with the normal, then it is outer side (labeled as -1) of cartilage surface
+    #     # we only cares the direction on x-y plane
+    #     # print(k, face_normal[k].shape, np.sign(face_normal[k]), face_normal[k])
         
-        if np.dot(connect_direction[:2], face_normal[k, :2]) < 0:
-            inner_outer_label_list[k] = 1
-        else:
-            inner_outer_label_list[k] = -1
+    #     if np.dot(connect_direction[:2], face_normal[k, :2]) < 0:
+    #         inner_outer_label_list[k] = 1
+    #     else:
+    #         inner_outer_label_list[k] = -1
     
-    
+    print('Count of labels in the Mesh')
+    print((inner_outer_label_list == 1).sum())
+    print((inner_outer_label_list == -1).sum())
+
     return smooth_mesh_segmentation(mesh, inner_outer_label_list, smooth_rings=smooth_rings, 
                                     max_rings=max_rings,
                                     n_workers=n_workers)
@@ -449,7 +499,7 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
     mesh.enable_connectivity()
 
     mesh.add_attribute("face_centroid")
-    mesh.add_attribute("face_normal")
+    #mesh.add_attribute("face_normal")
     #mesh.add_attribute("vertex_gaussian_curvature")
     
     mesh_centroids = mesh.get_attribute('face_centroid').reshape(-1, 3)
@@ -935,46 +985,51 @@ FC_mesh_main = FC_mesh
 TC_mesh_main = TC_mesh
 
 
-#cell_normals = get_cell_normals(FC_itk_mesh)
+FC_mesh_cell_normals = get_cell_normals(FC_mesh)
+TC_mesh_cell_normals = get_cell_normals(TC_mesh)
 
+FC_mesh_cell_centroids = get_cell_centroid(FC_mesh)
+TC_mesh_cell_centroids = get_cell_centroid(TC_mesh)
 
-# writer = vtk.vtkPolyDataWriter()
-# writer.SetFileVersion(42)
+print(FC_mesh_cell_normals.shape)
+print(TC_mesh_cell_normals.shape)
+print(FC_mesh_cell_centroids.shape)
+print(TC_mesh_cell_centroids.shape)
 
-# writer.SetFileName('FC_mesh.vtk')
-# writer.SetInputData(FC_mesh)
-# writer.Write()
-
-# writer.SetFileName('TC_mesh.vtk')
-# writer.SetInputData(TC_mesh)
-# writer.Write()
-
-
-
-import sys
-sys.exit()
 
 current_mesh = FC_mesh_main
 
 if 1:
-    smooth_rings = 1
+    smooth_rings = 0
     max_rings = None
     inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(current_mesh,
+                                                                                            FC_mesh_cell_normals,
+                                                                                            FC_mesh_cell_centroids,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
     print('Types of inner_mesh, outer_mesh ')
     print(type(inner_mesh), type(outer_mesh), type(inner_face_list), type(outer_face_list), inner_face_list.shape)
 
-    
     # For printing the points in the faces of the Mesh
-    TC_mesh_main_faces = current_mesh.faces
-    TC_mesh_main_vertices = current_mesh.vertices
+    #TC_mesh_main_faces = current_mesh.faces
+    #TC_mesh_main_vertices = current_mesh.vertices
 
-    
     end_time  = time.time()
-    print('Elapsed Time ', end_time - start_time)
-    plot_mesh_segmentation(inner_mesh, outer_mesh)
+
+    writer = vtk.vtkPolyDataWriter()
+    writer.SetFileVersion(42)
+
+    writer.SetInputData(inner_mesh)
+    writer.SetFileName('inner_mesh.vtk')
+    writer.Update()
+    
+    writer.SetInputData(outer_mesh)
+    writer.SetFileName('outer_mesh.vtk')
+    writer.Update()
+
+    #print('Elapsed Time ', end_time - start_time)
+    #plot_mesh_segmentation(inner_mesh, outer_mesh)
     # import visvis as vv
     # mesh1 = selected_vtk_mesh
     # app = vv.use()
