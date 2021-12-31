@@ -324,6 +324,9 @@ def get_vtk_sub_mesh(input_mesh, inner_face_list):
         tri = vtk.vtkTriangle()
         current_cell_points = input_mesh.GetCell(i).GetPointIds()
         
+        if current_cell_points.GetNumberOfIds() != 3:
+            print('Ids are not three Some Issue ', current_cell_points.GetNumberOfIds())
+        
         for i in range(3):
             point_id = current_cell_points.GetId(i)
             
@@ -486,7 +489,7 @@ def split_femoral_cartilage_surface(mesh, face_normal, face_centroid, smooth_rin
                                     max_rings=max_rings,
                                     n_workers=n_workers)
 
-def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_workers=1):
+def split_tibial_cartilage_surface(mesh, face_normal, face_centroid, smooth_rings=1, max_rings=None, n_workers=1):
     """
     split femoral cartilage into two inner(touching the tibial bone) and outer surfaces by 
     clustering face normals
@@ -496,17 +499,18 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
     :return: inner_mesh(label -1, surface touching bones), outer_mesh(label 1),
     inner_face_list(face indices of inner mesh), outer_face_list(face indices of outer mesh)
     """
-    mesh.enable_connectivity()
+    #mesh.enable_connectivity()
 
-    mesh.add_attribute("face_centroid")
+    #mesh.add_attribute("face_centroid")
     #mesh.add_attribute("face_normal")
     #mesh.add_attribute("vertex_gaussian_curvature")
     
-    mesh_centroids = mesh.get_attribute('face_centroid').reshape(-1, 3)
+    mesh_centroids = face_centroid#mesh.get_attribute('face_centroid').reshape(-1, 3)
     mesh_centroids_normalized = (mesh_centroids - np.mean(mesh_centroids, axis=0)) / \
                                 (np.max(mesh_centroids, axis=0) - np.min(mesh_centroids, axis=0))
 
-    mesh_normals = mesh.get_attribute('face_normal').reshape(-1, 3)
+    mesh_normals = face_normal
+    #mesh_normals = mesh.get_attribute('face_normal').reshape(-1, 3)
     #mesh_face_index = mesh.get_attribute('face_index').reshape(-1, 1)
 
     # clustering normals
@@ -523,6 +527,10 @@ def split_tibial_cartilage_surface(mesh, smooth_rings=1, max_rings=None, n_worke
     # set inner surface which contains mostly positive normals
     if mesh_normals[inner_outer_label_list == -1, 1].mean() < 0:
         inner_outer_label_list = -inner_outer_label_list
+
+    print('Count of labels in the Mesh')
+    print((inner_outer_label_list == 1).sum())
+    print((inner_outer_label_list == -1).sum())
 
     return smooth_mesh_segmentation(mesh, inner_outer_label_list, smooth_rings=smooth_rings, 
                                     max_rings=max_rings,
@@ -984,7 +992,6 @@ TC_mesh = get_vtk_mesh(TC_verts, TC_faces)
 FC_mesh_main = FC_mesh
 TC_mesh_main = TC_mesh
 
-
 FC_mesh_cell_normals = get_cell_normals(FC_mesh)
 TC_mesh_cell_normals = get_cell_normals(TC_mesh)
 
@@ -997,14 +1004,16 @@ print(FC_mesh_cell_centroids.shape)
 print(TC_mesh_cell_centroids.shape)
 
 
-current_mesh = FC_mesh_main
+current_mesh = TC_mesh_main
+current_face_normals = TC_mesh_cell_normals
+current_face_centroids = TC_mesh_cell_centroids
 
 if 1:
     smooth_rings = 0
     max_rings = None
-    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_femoral_cartilage_surface(current_mesh,
-                                                                                            FC_mesh_cell_normals,
-                                                                                            FC_mesh_cell_centroids,
+    inner_mesh, outer_mesh, inner_face_list, outer_face_list = split_tibial_cartilage_surface(current_mesh,
+                                                                                            current_face_normals,
+                                                                                            current_face_centroids,
                                                                                             smooth_rings=smooth_rings,
                                                                                             max_rings=max_rings,
                                                                                             n_workers=1)
@@ -1016,6 +1025,7 @@ if 1:
     #TC_mesh_main_vertices = current_mesh.vertices
 
     end_time  = time.time()
+    print('Elapsed Time ', end_time - start_time)
 
     writer = vtk.vtkPolyDataWriter()
     writer.SetFileVersion(42)
@@ -1028,7 +1038,8 @@ if 1:
     writer.SetFileName('outer_mesh.vtk')
     writer.Update()
 
-    #print('Elapsed Time ', end_time - start_time)
+    #view(geometries=[inner_mesh, outer_mesh])
+
     #plot_mesh_segmentation(inner_mesh, outer_mesh)
     # import visvis as vv
     # mesh1 = selected_vtk_mesh
